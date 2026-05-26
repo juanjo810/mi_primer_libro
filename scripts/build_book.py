@@ -429,7 +429,7 @@ def build_language(lang):
     # Use _temp_build_{lang}
     temp_build_root = os.path.abspath(os.path.join(os.getcwd(), f"_temp_build_{lang}"))
     if os.path.exists(temp_build_root):
-        shutil.rmtree(temp_build_root)
+        shutil.rmtree(temp_build_root, ignore_errors=True)
     os.makedirs(temp_build_root)
 
     # 2. Copy localized content AS A SUBFOLDER to keep paths valid (e.g., temp_en/en/intro.md)
@@ -583,7 +583,7 @@ def build_language(lang):
     finally:
         # Cleanup temp directory
         if os.path.exists(temp_build_root):
-            shutil.rmtree(temp_build_root)
+            shutil.rmtree(temp_build_root, ignore_errors=True)
 
 
 def merge_dir_into(src_dir, dst_dir):
