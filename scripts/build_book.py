@@ -6,6 +6,7 @@ import glob
 import shutil
 import json
 import time
+import stat
 from datetime import datetime
 from pathlib import Path
 
@@ -61,6 +62,19 @@ def print_output_tail(stdout, stderr, lines=80):
     tail = combined.splitlines()[-lines:]
     if tail:
         print("\n".join(tail))
+
+
+def remove_tree(path, ignore_errors=False):
+    """Remove a generated directory, restoring write permissions on Windows."""
+    def handle_remove_error(func, target, _exc_info):
+        try:
+            os.chmod(target, stat.S_IREAD | stat.S_IWRITE)
+            func(target)
+        except OSError:
+            if not ignore_errors:
+                raise
+
+    shutil.rmtree(path, ignore_errors=ignore_errors, onerror=handle_remove_error)
 
 
 def get_jupyter_book():
@@ -392,7 +406,7 @@ def build_language(lang):
 
         # Standard build logic for default
         if os.path.exists(build_cache_dir):
-            shutil.rmtree(build_cache_dir)
+            remove_tree(build_cache_dir)
 
         cmd = [
             get_jupyter_book(),
@@ -429,7 +443,12 @@ def build_language(lang):
     # Use _temp_build_{lang}
     temp_build_root = os.path.abspath(os.path.join(os.getcwd(), f"_temp_build_{lang}"))
     if os.path.exists(temp_build_root):
-        shutil.rmtree(temp_build_root, ignore_errors=True)
+        remove_tree(temp_build_root, ignore_errors=True)
+    if os.path.exists(temp_build_root):
+        suffix = f"{int(time.time())}_{os.getpid()}"
+        temp_build_root = os.path.abspath(
+            os.path.join(os.getcwd(), f"_temp_build_{lang}_{suffix}")
+        )
     os.makedirs(temp_build_root)
 
     # 2. Copy localized content AS A SUBFOLDER to keep paths valid (e.g., temp_en/en/intro.md)
@@ -496,7 +515,7 @@ def build_language(lang):
 
         print(f"🚚 Moviendo de {built_html_path_nested} a {final_dest}")
         if os.path.exists(final_dest):
-            shutil.rmtree(final_dest)
+            remove_tree(final_dest)
 
         # Ensure parent dir exists
         os.makedirs(os.path.dirname(final_dest), exist_ok=True)
@@ -583,7 +602,7 @@ def build_language(lang):
     finally:
         # Cleanup temp directory
         if os.path.exists(temp_build_root):
-            shutil.rmtree(temp_build_root, ignore_errors=True)
+            remove_tree(temp_build_root, ignore_errors=True)
 
 
 def merge_dir_into(src_dir, dst_dir):
@@ -688,7 +707,7 @@ def main():
     # Start from a clean HTML output tree so deleted assets do not survive
     # between builds. The source assets remain in book/_static.
     if os.path.exists(FINAL_HTML_DIR):
-        shutil.rmtree(FINAL_HTML_DIR)
+        remove_tree(FINAL_HTML_DIR)
     os.makedirs(FINAL_HTML_DIR)
 
     # Pre-create root _static to avoid race conditions or missing dirs
