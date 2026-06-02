@@ -31,6 +31,7 @@ Before writing code, identify the circuit inputs, outputs, and internal signals.
 
 | Session | Topic | Main idea |
 |---|---|---|
+| 0 | Ubuntu Terminal for Verilog | Folders, files, basic editors, and first contact with `iverilog` |
 | 1 | Introduction to Verilog | Working environment, basic modules, and screen output |
 | 2 | Bit operations | Masks, parity, and bit reduction |
 | 3 | Logic gates | AND, OR, NOT, NAND, NOR, XOR, XNOR, and combinational functions |
@@ -44,8 +45,8 @@ Before writing code, identify the circuit inputs, outputs, and internal signals.
 
 ## Available material
 
-Start with the first course session:
+Start with the course preparation session:
 
-- [Session 1. Introduction to Verilog](01_verilog/session_01_introduction.md)
+- [Session 0. Ubuntu Terminal for Verilog](01_verilog/session_00_ubuntu_terminal.md)
 
 You can switch to the Spanish book from the language selector in the top bar.

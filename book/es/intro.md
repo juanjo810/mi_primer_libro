@@ -31,6 +31,7 @@ Antes de escribir código, identifica las entradas, salidas y señales internas 
 
 | Sesión | Tema | Idea principal |
 |---|---|---|
+| 0 | Terminal de Ubuntu para Verilog | Carpetas, archivos, editores básicos y primer contacto con `iverilog` |
 | 1 | Introducción a Verilog | Entorno de trabajo, módulos básicos y salida por pantalla |
 | 2 | Operaciones con bits | Máscaras, paridad y reducción de bits |
 | 3 | Puertas lógicas | AND, OR, NOT, NAND, NOR, XOR, XNOR y funciones combinacionales |
@@ -44,8 +45,8 @@ Antes de escribir código, identifica las entradas, salidas y señales internas 
 
 ## Material disponible
 
-Empieza por la primera sesión del curso:
+Empieza por la sesión de preparación del curso:
 
-- [Sesión 1. Introducción a Verilog](01_verilog/sesion_01_introduccion.md)
+- [Sesión 0. Terminal de Ubuntu para Verilog](01_verilog/sesion_00_terminal_ubuntu.md)
 
 También puedes cambiar al libro en inglés desde el selector de idioma de la barra superior.

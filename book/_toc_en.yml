@@ -112,6 +112,7 @@ root: en/intro
 parts:
   - caption: Verilog Course
     chapters:
+    - file: en/01_verilog/session_00_ubuntu_terminal
     - file: en/01_verilog/session_01_introduction
     - file: en/01_verilog/session_02_operations
     - file: en/01_verilog/session_03_logic_gates
