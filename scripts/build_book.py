@@ -77,16 +77,41 @@ def remove_tree(path, ignore_errors=False):
     shutil.rmtree(path, ignore_errors=ignore_errors, onerror=handle_remove_error)
 
 
-def get_jupyter_book():
-    """Returns the path to jupyter-book executable. Prefers venv, falls back to system."""
+def get_venv_python():
+    """Return the project venv Python if it matches the current OS."""
     if os.name == "nt":
-        venv_jb = os.path.join(".venv", "Scripts", "jupyter-book.exe")
+        venv_python = os.path.join(".venv", "Scripts", "python.exe")
     else:
-        venv_jb = os.path.join(".venv", "bin", "jupyter-book")
-    if os.path.isfile(venv_jb):
-        return venv_jb
+        venv_python = os.path.join(".venv", "bin", "python")
+    if os.path.isfile(venv_python):
+        return venv_python
+    return sys.executable
+
+
+def get_jupyter_book_cmd():
+    """Return a stable Jupyter Book command.
+
+    On Windows, uv-generated console launchers can fail to resolve paths in
+    synced/non-ASCII folders. Calling the CLI module through .venv Python avoids
+    that trampoline while keeping all dependencies inside the project venv.
+    """
+    venv_python = get_venv_python()
+    try:
+        subprocess.run(
+            [venv_python, "-c", "import jupyter_book.cli.main"],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        return [
+            venv_python,
+            "-c",
+            "from jupyter_book.cli.main import main; main()",
+        ]
+    except (subprocess.CalledProcessError, OSError):
+        pass
     # Fallback: system-wide jupyter-book (e.g. CI environments)
-    return "jupyter-book"
+    return ["jupyter-book"]
 
 
 def run_jupyter_book_build(cmd, label, attempts=3):
@@ -101,11 +126,11 @@ def run_jupyter_book_build(cmd, label, attempts=3):
         try:
             print(f"🚀 Ejecutando build {label} ({attempt}/{attempts}): {' '.join(cmd)}")
             if VERBOSE:
-                subprocess.check_call(cmd, shell=(os.name == "nt"))
+                subprocess.check_call(cmd)
             else:
                 result = subprocess.run(
                     cmd,
-                    shell=(os.name == "nt"),
+                    shell=False,
                     check=False,
                     capture_output=True,
                     text=True,
@@ -254,6 +279,43 @@ def validate_bibliography_for_language(lang, content_dir, bib_file):
         f"{result.citation_count} cita(s), "
         f"{len(result.used_keys)} clave(s) usadas."
     )
+
+
+def toc_referenced_entries(project_dir):
+    """Return suffixless document paths referenced by a project's _toc.yml."""
+    toc_path = os.path.join(project_dir, "_toc.yml")
+    if not os.path.exists(toc_path):
+        return set()
+    with open(toc_path, "r", encoding="utf-8") as f:
+        toc = yaml.safe_load(f) or {}
+
+    entries = {toc["root"]} if "root" in toc else set()
+
+    def walk(item):
+        if "file" in item:
+            entries.add(item["file"])
+        for section in item.get("sections", []) or []:
+            walk(section)
+
+    for part in toc.get("parts", []) or []:
+        for chapter in part.get("chapters", []) or []:
+            walk(chapter)
+    return entries
+
+
+def unreferenced_content_excludes(project_dir):
+    """Return content files that should stay out of HTML/PDF builds."""
+    referenced = toc_referenced_entries(project_dir)
+    if not referenced:
+        return []
+
+    excludes = []
+    for suffix in ("*.md", "*.ipynb"):
+        for path in Path(project_dir).rglob(suffix):
+            rel = path.relative_to(project_dir).with_suffix("").as_posix()
+            if rel not in referenced:
+                excludes.append(path.relative_to(project_dir).as_posix())
+    return sorted(excludes)
 
 
 def fix_pdf_paths(build_dir, pdf_filename):
@@ -409,7 +471,7 @@ def build_language(lang):
             remove_tree(build_cache_dir)
 
         cmd = [
-            get_jupyter_book(),
+            *get_jupyter_book_cmd(),
             "build",
             os.path.abspath(BOOK_DIR),
             "--config",
@@ -482,7 +544,7 @@ def build_language(lang):
 
     # 5. Build from the temp directory (Explicit config)
     cmd = [
-        get_jupyter_book(),
+        *get_jupyter_book_cmd(),
         "build",
         temp_build_root,
         "--config",
@@ -655,23 +717,29 @@ def sanitize_config(config_path):
                 print("-" * 20)
             lines = content.splitlines(keepends=True)
 
+        project_dir = os.path.dirname(config_path)
+        safe_excludes = [
+            "_build",
+            "**.ipynb_checkpoints",
+            ".git",
+            ".github",
+            *unreferenced_content_excludes(project_dir),
+        ]
+        exclude_line = "exclude_patterns: " + json.dumps(safe_excludes, ensure_ascii=False) + "\n"
+
         new_lines = []
         exclude_written = False
         for line in lines:
             if "exclude_patterns:" in line:
                 # Force a safe, minimal exclusion list
                 # This ensures _build is ignored (no EISDIR) and nothing else is accidentally ignored
-                new_lines.append(
-                    'exclude_patterns: ["_build", "**.ipynb_checkpoints", ".git", ".github"]\n'
-                )
+                new_lines.append(exclude_line)
                 exclude_written = True
                 continue
             new_lines.append(line)
 
         if not exclude_written:
-            new_lines.append(
-                'exclude_patterns: ["_build", "**.ipynb_checkpoints", ".git", ".github"]\n'
-            )
+            new_lines.append(exclude_line)
 
         with open(config_path, "w", encoding="utf-8") as f:
             f.writelines(new_lines)

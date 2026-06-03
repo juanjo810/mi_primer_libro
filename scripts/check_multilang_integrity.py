@@ -19,6 +19,34 @@ from check_encoding import force_utf8_stdio, scan_project
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 BOOK_DIR = PROJECT_ROOT / "book"
+INTENTIONALLY_HIDDEN_PREFIXES = {
+    "en": (
+        "en/01_tutorial/",
+        "en/02_degrees/",
+        "en/03_cross_disciplinary_examples/",
+        "en/04_examples_from_other_books/",
+        "en/05_basic_content/",
+        "en/06_interactivity/",
+        "en/07_web_publication/",
+        "en/90_",
+        "en/91_",
+        "en/92_",
+        "en/93_",
+    ),
+    "es": (
+        "es/01_tutorial/",
+        "es/02_grados/",
+        "es/03_ejemplos_transversales/",
+        "es/04_ejemplos_otros_libros/",
+        "es/05_contenidos_basicos/",
+        "es/06_interactividad/",
+        "es/07_publicacion_web/",
+        "es/90_",
+        "es/91_",
+        "es/92_",
+        "es/93_",
+    ),
+}
 
 
 def configured_languages() -> list[str]:
@@ -64,6 +92,15 @@ def content_files(language: str) -> set[str]:
         for path in lang_dir.rglob(suffix):
             files.add(path.relative_to(BOOK_DIR).with_suffix("").as_posix())
     return files
+
+
+def hidden_content_files(language: str) -> set[str]:
+    prefixes = INTENTIONALLY_HIDDEN_PREFIXES.get(language, ())
+    return {
+        path
+        for path in content_files(language)
+        if any(path.startswith(prefix) for prefix in prefixes)
+    }
 
 
 def entry_exists(entry: str) -> bool:
@@ -113,7 +150,8 @@ def main() -> int:
     for language, entries in flat_entries.items():
         referenced = {entry for _, entry in entries}
         missing = sorted(entry for entry in referenced if not entry_exists(entry))
-        orphans = sorted(content_files(language) - referenced)
+        hidden = hidden_content_files(language)
+        orphans = sorted(content_files(language) - referenced - hidden)
         if missing:
             ok = False
             print(f"❌ Entradas TOC sin archivo en {language}:")

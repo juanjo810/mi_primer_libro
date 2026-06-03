@@ -340,16 +340,16 @@ def build_latex_project(lang: str, output_dir: Path, keep_temp: bool, make_zip: 
     if build_dir.exists():
         shutil.rmtree(build_dir)
 
-    jupyter_book = export_pdf.get_jupyter_book()
-    if not jupyter_book:
+    jupyter_book_cmd = export_pdf.get_jupyter_book_cmd()
+    if not jupyter_book_cmd:
         print("ERROR: no se encontro jupyter-book. Ejecuta scripts/setup_env.py.")
         return False
 
     print("Generando LaTeX con Jupyter Book...", flush=True)
     try:
         subprocess.run(
-            [jupyter_book, "build", "--builder", "latex", str(src_dir), "--all"],
-            shell=(os.name == "nt"),
+            [*jupyter_book_cmd, "build", "--builder", "latex", str(src_dir), "--all"],
+            shell=False,
             check=True,
         )
     except subprocess.CalledProcessError as exc:

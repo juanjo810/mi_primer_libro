@@ -6,6 +6,7 @@ import os
 import platform
 import site
 import shutil
+import stat
 import subprocess
 import sys
 import sysconfig
@@ -449,11 +450,15 @@ def sync_skills():
         print(f"ERROR: origen de skills no encontrado: {SKILLS_SOURCE}")
         return False
 
+    def handle_remove_error(func, path, _exc_info):
+        os.chmod(path, stat.S_IREAD | stat.S_IWRITE)
+        func(path)
+
     ok = True
     for dest in SKILLS_DESTINATIONS:
         try:
             if dest.exists():
-                shutil.rmtree(dest)
+                shutil.rmtree(dest, onerror=handle_remove_error)
             shutil.copytree(SKILLS_SOURCE, dest)
             print(f"  OK {dest.relative_to(PROJECT_ROOT)}")
         except Exception as exc:

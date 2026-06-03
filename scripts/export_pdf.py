@@ -3,6 +3,7 @@ import json
 import subprocess
 import os
 import shutil
+import stat
 import sys
 import glob
 import re
@@ -36,15 +37,35 @@ except ModuleNotFoundError as exc:
 from collect_used_bibliography import BibliographyError, collect_used_bibliography
 
 
-def get_jupyter_book():
-    """Returns the path to jupyter-book executable. Prefers venv, falls back to system."""
+def get_venv_python():
+    """Return the project venv Python if it matches the current OS."""
     if os.name == "nt":
-        venv_jb = os.path.join(PROJECT_ROOT, ".venv", "Scripts", "jupyter-book.exe")
+        venv_python = os.path.join(PROJECT_ROOT, ".venv", "Scripts", "python.exe")
     else:
-        venv_jb = os.path.join(PROJECT_ROOT, ".venv", "bin", "jupyter-book")
-    if os.path.isfile(venv_jb):
-        return venv_jb
-    return shutil.which("jupyter-book")
+        venv_python = os.path.join(PROJECT_ROOT, ".venv", "bin", "python")
+    if os.path.isfile(venv_python):
+        return venv_python
+    return sys.executable
+
+
+def get_jupyter_book_cmd():
+    """Return a stable Jupyter Book command for HTML/PDF builds."""
+    venv_python = get_venv_python()
+    try:
+        subprocess.run(
+            [venv_python, "-c", "import jupyter_book.cli.main"],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        return [
+            venv_python,
+            "-c",
+            "from jupyter_book.cli.main import main; main()",
+        ]
+    except (subprocess.CalledProcessError, OSError):
+        jupyter_book = shutil.which("jupyter-book")
+        return [jupyter_book] if jupyter_book else []
 
 
 # Configuration
@@ -59,6 +80,16 @@ PDF_REQUIRED_DISTS = [
     "svglib",
     "reportlab",
 ]
+
+
+def remove_tree(path, ignore_errors=False):
+    """Remove a generated directory, restoring write permissions on Windows."""
+
+    def handle_remove_error(func, target, _exc_info):
+        os.chmod(target, stat.S_IREAD | stat.S_IWRITE)
+        func(target)
+
+    shutil.rmtree(path, ignore_errors=ignore_errors, onerror=handle_remove_error)
 
 
 def get_languages():
@@ -893,7 +924,7 @@ def build_pdf_for_lang(lang, engine_name):
         # Use _temp_pdf_{lang} at ROOT to avoid recursion/exclusion issues
         temp_root = os.path.abspath(os.path.join(os.getcwd(), f"_temp_pdf_{lang}"))
         if os.path.exists(temp_root):
-            shutil.rmtree(temp_root)
+            remove_tree(temp_root)
         os.makedirs(temp_root)
 
         lang_src = os.path.join(BOOK_DIR, lang)
@@ -919,7 +950,7 @@ def build_pdf_for_lang(lang, engine_name):
             print(f"❌ Error preparando bibliografía PDF para '{lang}':")
             print(exc)
             if os.path.exists(temp_root):
-                shutil.rmtree(temp_root)
+                remove_tree(temp_root)
             return False
         try:
             rewrite_gif_references_for_pdf(temp_root, lang)
@@ -927,7 +958,7 @@ def build_pdf_for_lang(lang, engine_name):
             print(f"❌ Error preparando GIFs para PDF en '{lang}':")
             print(exc)
             if os.path.exists(temp_root):
-                shutil.rmtree(temp_root)
+                remove_tree(temp_root)
             return False
         sanitize_kroki_blocks_for_pdf(temp_root)
         src_dir = temp_root
@@ -939,12 +970,12 @@ def build_pdf_for_lang(lang, engine_name):
     dest_pdf_path = os.path.join(STATIC_DIR, pdf_filename)
 
     if os.path.exists(build_dir):
-        shutil.rmtree(build_dir)
+        remove_tree(build_dir)
 
     print("📝 Generando archivos LaTeX con Jupyter Book...", flush=True)
     try:
-        jupyter_book = get_jupyter_book()
-        if not jupyter_book:
+        jupyter_book_cmd = get_jupyter_book_cmd()
+        if not jupyter_book_cmd:
             print("❌ No se encontró jupyter-book.")
             print("   Ejecuta primero el setup oficial del proyecto y usa el Python de .venv:")
             if os.name == "nt":
@@ -955,8 +986,8 @@ def build_pdf_for_lang(lang, engine_name):
                 print("   .venv/bin/python scripts/export_pdf.py")
             return False
 
-        cmd = [jupyter_book, "build", "--builder", "latex", src_dir, "--all"]
-        subprocess.run(cmd, shell=(os.name == "nt"), check=True)
+        cmd = [*jupyter_book_cmd, "build", "--builder", "latex", src_dir, "--all"]
+        subprocess.run(cmd, shell=False, check=True)
     except subprocess.CalledProcessError as e:
         print(f"❌ Error en jupyter-book build ({lang}): {e}")
         return False
@@ -965,7 +996,7 @@ def build_pdf_for_lang(lang, engine_name):
         return False
     finally:
         if temp_mode and not os.path.exists(latex_build_dir) and os.path.exists(src_dir):
-            shutil.rmtree(src_dir)
+            remove_tree(src_dir)
 
     print("🎨 Aplicando plantillas LaTeX personalizadas...", flush=True)
     templates_root = os.path.abspath("latex_templates")
@@ -1057,12 +1088,49 @@ def build_pdf_for_lang(lang, engine_name):
         os.chdir(current_dir)
         if temp_mode and os.path.exists(src_dir):
             try:
-                shutil.rmtree(src_dir)
+                remove_tree(src_dir)
             except OSError as cleanup_error:
                 print(
                     f"⚠️ No se pudo limpiar la carpeta temporal {src_dir}: "
                     f"{cleanup_error}"
                 )
+
+
+def toc_referenced_entries(project_dir):
+    """Return suffixless document paths referenced by a project's _toc.yml."""
+    toc_path = os.path.join(project_dir, "_toc.yml")
+    if not os.path.exists(toc_path):
+        return set()
+    with open(toc_path, "r", encoding="utf-8") as f:
+        toc = yaml.safe_load(f) or {}
+
+    entries = {toc["root"]} if "root" in toc else set()
+
+    def walk(item):
+        if "file" in item:
+            entries.add(item["file"])
+        for section in item.get("sections", []) or []:
+            walk(section)
+
+    for part in toc.get("parts", []) or []:
+        for chapter in part.get("chapters", []) or []:
+            walk(chapter)
+    return entries
+
+
+def unreferenced_content_excludes(project_dir):
+    """Return content files that should stay out of PDF builds."""
+    referenced = toc_referenced_entries(project_dir)
+    if not referenced:
+        return []
+
+    excludes = []
+    for suffix in ("*.md", "*.ipynb"):
+        for path in Path(project_dir).rglob(suffix):
+            rel = path.relative_to(project_dir).with_suffix("").as_posix()
+            if rel not in referenced:
+                excludes.append(path.relative_to(project_dir).as_posix())
+    return sorted(excludes)
 
 
 def sanitize_config(config_path):
@@ -1073,22 +1141,28 @@ def sanitize_config(config_path):
         with open(config_path, "r", encoding="utf-8") as f:
             lines = f.readlines()
 
+        project_dir = os.path.dirname(config_path)
+        safe_excludes = [
+            "_build",
+            "**.ipynb_checkpoints",
+            ".git",
+            ".github",
+            *unreferenced_content_excludes(project_dir),
+        ]
+        exclude_line = "exclude_patterns: " + json.dumps(safe_excludes, ensure_ascii=False) + "\n"
+
         new_lines = []
         exclude_written = False
         for line in lines:
             if "exclude_patterns:" in line:
                 # Force a safe, minimal exclusion list
-                new_lines.append(
-                    'exclude_patterns: ["_build", "**.ipynb_checkpoints", ".git", ".github"]\n'
-                )
+                new_lines.append(exclude_line)
                 exclude_written = True
                 continue
             new_lines.append(line)
 
         if not exclude_written:
-            new_lines.append(
-                'exclude_patterns: ["_build", "**.ipynb_checkpoints", ".git", ".github"]\n'
-            )
+            new_lines.append(exclude_line)
 
         with open(config_path, "w", encoding="utf-8") as f:
             f.writelines(new_lines)
