@@ -32,6 +32,21 @@ PDF_REQUIRED_DISTS = [
 TECTONIC_RELEASE_TAG = os.environ.get("TECTONIC_RELEASE_TAG", "tectonic@0.15.0")
 TINYTEX_VERSION = os.environ.get("TINYTEX_VERSION", "2026.04")
 TINYTEX_INSTALLER = os.environ.get("TINYTEX_INSTALLER", "TinyTeX-1")
+TINYTEX_REPOSITORIES = [
+    repo.strip()
+    for repo in os.environ.get(
+        "TINYTEX_REPOSITORIES",
+        ",".join(
+            [
+                "https://mirror.ctan.org/systems/texlive/tlnet",
+                "https://ctan.math.utah.edu/ctan/tex-archive/systems/texlive/tlnet",
+                "https://mirrors.mit.edu/CTAN/systems/texlive/tlnet",
+                "https://texlive.info/tlnet-archive/2026/06/01/tlnet",
+            ]
+        ),
+    ).split(",")
+    if repo.strip()
+]
 # TinyTeX-1 already brings the LaTeX base, XeTeX, latexmk, fontspec,
 # hyperref, xcolor, amsmath, babel and other essentials. Keep this list
 # surgical: only packages required by the TeachBook templates/Sphinx output
@@ -1318,15 +1333,29 @@ def install_tinytex_packages():
 
     print("📦 Instalando paquetes LaTeX mínimos necesarios en TinyTeX...")
     print(f"   Paquetes explícitos: {', '.join(TINYTEX_PACKAGES)}")
-    try:
-        subprocess.run([tlmgr, "option", "repository", "ctan"], check=False, env=env, timeout=60)
-        subprocess.run([tlmgr, "update", "--self"], check=False, env=env, timeout=600)
-        run([tlmgr, "install", *TINYTEX_PACKAGES], env=env)
-        subprocess.run([tlmgr, "postaction", "install", "script", "xetex"], check=False, env=env, timeout=300)
-    except Exception as exc:
-        print(f"❌ Error instalando paquetes TinyTeX: {exc}")
-        return False
-    return True
+
+    last_error = None
+    for index, repository in enumerate(TINYTEX_REPOSITORIES, start=1):
+        print(f"   Repositorio TeX Live {index}/{len(TINYTEX_REPOSITORIES)}: {repository}")
+        try:
+            subprocess.run(
+                [tlmgr, "option", "repository", repository],
+                check=True,
+                env=env,
+                timeout=120,
+            )
+            subprocess.run([tlmgr, "update", "--self"], check=False, env=env, timeout=600)
+            run([tlmgr, "install", *TINYTEX_PACKAGES], env=env)
+            subprocess.run([tlmgr, "postaction", "install", "script", "xetex"], check=False, env=env, timeout=300)
+            return True
+        except Exception as exc:
+            last_error = exc
+            print(f"   ⚠️  No se pudo instalar desde este repositorio: {exc}")
+
+    print("❌ Error instalando paquetes TinyTeX: todos los repositorios fallaron.")
+    if last_error:
+        print(f"   Último error: {last_error}")
+    return False
 
 
 def main():
